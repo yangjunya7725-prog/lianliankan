@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>连连看 - Valentine's Day</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #E8E8E8;
+      font-family: -apple-system, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 {
+      color: #E3366B;
+      margin-bottom: 16px;
+      font-size: 1.5rem;
+    }
+    #gameContainer {
+      background: #2d2d2d;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    #canvas {
+      display: block;
+      cursor: pointer;
+    }
+    #newGame {
+      display: block;
+      margin: 12px auto 0;
+      padding: 10px 24px;
+      font-size: 16px;
+      background: #555;
+      color: white;
+      border: 2px solid #666;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #newGame:hover { background: #666; }
+  </style>
+</head>
+<body>
+  <h1>连连看</h1>
+  <div id="gameContainer">
+    <canvas id="canvas" width="680" height="690"></canvas>
+    <button id="newGame">新游戏</button>
+  </div>
+
+  <script>
+    const GRID_ROWS = 8, GRID_COLS = 8;
+    const TILE_SIZE = 80, MARGIN = 10;
+    const VICTORY_MSG = "Happy Valentine's Day, meine kleine Rose!";
+
+    const IMAGE_FILES = [
+      '008CDAAD-6C3C-4EAE-8046-62A322C3D3C3.png',
+      '76C14B5A-9B23-4C19-B744-3831898F221E.png',
+      '8A6AEDF2-9B6F-4A2E-BE82-E6F2C39ADEF8.png',
+      '94B2EDBC-69EE-4DB0-99E6-660CD8B85B70.png',
+      'AB8B0F1C-FD28-4E09-AD41-EBE6584EAA10.png',
+      'D29C3F0A-911C-4B7D-848B-4594693991E8.png',
+      'DC1A5786-9962-4F7B-82F4-6228F23F4D68.png',
+      'EAD08F93-E14C-4506-9027-F21C1330E3F9.png'
+    ];
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let grid = [], selected = null, eliminationLine = null, victory = false;
+    let tileImages = [], victoryStartTime = 0, victoryParticles = [], victoryBurstCount = 0;
+    let imagesLoaded = 0;
+
+    function gridToPixel(r, c) {
+      return [
+        MARGIN + c * TILE_SIZE + TILE_SIZE / 2,
+        MARGIN + r * TILE_SIZE + TILE_SIZE / 2
+      ];
+    }
+
+    function pathClearStraight(r1, c1, r2, c2) {
+      if (r1 === r2) {
+        for (let c = Math.min(c1, c2) + 1; c < Math.max(c1, c2); c++)
+          if (grid[r1][c] >= 0) return false;
+      } else if (c1 === c2) {
+        for (let r = Math.min(r1, r2) + 1; r < Math.max(r1, r2); r++)
+          if (grid[r][c1] >= 0) return false;
+      } else return false;
+      return true;
+    }
+
+    function canConnect(r1, c1, r2, c2) {
+      if (r1 === r2 && c1 === c2) return false;
+      if (pathClearStraight(r1, c1, r2, c2)) return true;
+      if (grid[r1][c2] < 0 && pathClearStraight(r1, c1, r1, c2) && pathClearStraight(r1, c2, r2, c2)) return true;
+      if (grid[r2][c1] < 0 && pathClearStraight(r1, c1, r2, c1) && pathClearStraight(r2, c1, r2, c2)) return true;
+      for (let c = 0; c < GRID_COLS; c++) {
+        if (c === c1 || c === c2) continue;
+        if (grid[r1][c] < 0 && grid[r2][c] < 0 &&
+            pathClearStraight(r1, c1, r1, c) && pathClearStraight(r1, c, r2, c) && pathClearStraight(r2, c, r2, c2))
+          return true;
+      }
+      for (let r = 0; r < GRID_ROWS; r++) {
+        if (r === r1 || r === r2) continue;
+        if (grid[r][c1] < 0 && grid[r][c2] < 0 &&
+            pathClearStraight(r1, c1, r, c1) && pathClearStraight(r, c1, r, c2) && pathClearStraight(r, c2, r2, c2))
+          return true;
+      }
+      return false;
+    }
+
+    function getConnectionPath(r1, c1, r2, c2) {
+      if (r1 === r2 && c1 === c2) return null;
+      if (pathClearStraight(r1, c1, r2, c2)) return [[r1,c1],[r2,c2]];
+      if (grid[r1][c2] < 0 && pathClearStraight(r1, c1, r1, c2) && pathClearStraight(r1, c2, r2, c2)) return [[r1,c1],[r1,c2],[r2,c2]];
+      if (grid[r2][c1] < 0 && pathClearStraight(r1, c1, r2, c1) && pathClearStraight(r2, c1, r2, c2)) return [[r1,c1],[r2,c1],[r2,c2]];
+      for (let c = 0; c < GRID_COLS; c++) {
+        if (c === c1 || c === c2) continue;
+        if (grid[r1][c] < 0 && grid[r2][c] < 0 &&
+            pathClearStraight(r1, c1, r1, c) && pathClearStraight(r1, c, r2, c) && pathClearStraight(r2, c, r2, c2))
+          return [[r1,c1],[r1,c],[r2,c],[r2,c2]];
+      }
+      for (let r = 0; r < GRID_ROWS; r++) {
+        if (r === r1 || r === r2) continue;
+        if (grid[r][c1] < 0 && grid[r][c2] < 0 &&
+            pathClearStraight(r1, c1, r, c1) && pathClearStraight(r, c1, r, c2) && pathClearStraight(r, c2, r2, c2))
+          return [[r1,c1],[r,c1],[r,c2],[r2,c2]];
+      }
+      return null;
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+    }
+
+    function newGame() {
+      const total = GRID_ROWS * GRID_COLS;
+      const pairs = total / 2;
+      const n = tileImages.length;
+      let indices = [];
+      for (let i = 0; i < pairs; i++) {
+        indices.push(i % n, i % n);
+      }
+      shuffle(indices);
+      grid = [];
+      for (let i = 0; i < total; i += GRID_COLS) {
+        grid.push(indices.slice(i, i + GRID_COLS));
+      }
+      selected = null;
+      eliminationLine = null;
+      victory = false;
+      victoryParticles = [];
+      victoryBurstCount = 0;
+    }
+
+    function spawnFirework(cx, cy) {
+      const colors = ['#E3366B','#FF69B4','#FF1493','#C71585'];
+      for (let i = 0; i < 25; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 4;
+        victoryParticles.push({
+          x: cx, y: cy,
+          vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+          life: 0.6 + Math.random() * 0.4, color: colors[Math.floor(Math.random() * colors.length)]
+        });
+      }
+    }
+
+    function draw() {
+      if (victory) {
+        drawVictory();
+        return;
+      }
+      ctx.fillStyle = '#2d2d2d';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let r = 0; r < GRID_ROWS; r++) {
+        for (let c = 0; c < GRID_COLS; c++) {
+          const x = MARGIN + c * TILE_SIZE, y = MARGIN + r * TILE_SIZE;
+          const idx = grid[r][c];
+          if (idx >= 0 && tileImages[idx]) {
+            ctx.drawImage(tileImages[idx], x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            if (selected && selected[0] === r && selected[1] === c && !eliminationLine) {
+              ctx.strokeStyle = '#FF69B4';
+              ctx.lineWidth = 4;
+              ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+            }
+          }
+        }
+      }
+
+      if (eliminationLine) {
+        const path = eliminationLine.path;
+        ctx.strokeStyle = '#FF69B4';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        const [x0, y0] = gridToPixel(path[0][0], path[0][1]);
+        ctx.moveTo(x0, y0);
+        for (let i = 1; i < path.length; i++) {
+          const [x, y] = gridToPixel(path[i][0], path[i][1]);
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    function drawVictory() {
+      ctx.fillStyle = '#E8E8E8';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const cx = canvas.width / 2, cy = canvas.height / 2 - 60;
+      const t = (Date.now() / 1000) - victoryStartTime;
+
+      const expectedBursts = Math.floor(t / 0.4) + 1;
+      while (victoryBurstCount < expectedBursts) {
+        spawnFirework(cx + (Math.random() - 0.5) * 240, cy - 80 + (Math.random() - 0.5) * 80);
+        victoryBurstCount++;
+      }
+
+      victoryParticles = victoryParticles.filter(p => {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.02;
+        if (p.life <= 0) return false;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(1, 3 * p.life), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        return true;
+      });
+
+      ctx.fillStyle = '#E3366B';
+      ctx.font = 'bold 26px Arial';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 'rgba(180,40,70,0.5)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(VICTORY_MSG, cx, cy + 100);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = 'rgba(150,80,100,0.9)';
+      ctx.font = '18px Arial';
+      ctx.fillText('点击任意位置开始新游戏', cx, cy + 140);
+    }
+
+    canvas.addEventListener('click', (e) => {
+      if (victory) {
+        newGame();
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left, py = e.clientY - rect.top;
+      const col = Math.floor((px - MARGIN) / TILE_SIZE), row = Math.floor((py - MARGIN) / TILE_SIZE);
+      if (row < 0 || row >= GRID_ROWS || col < 0 || col >= GRID_COLS || grid[row][col] < 0) return;
+
+      if (!selected) {
+        selected = [row, col];
+      } else if (selected[0] === row && selected[1] === col) {
+        selected = null;
+      } else {
+        const [r1, c1] = selected, r2 = row, c2 = col;
+        const same = grid[r1][c1] === grid[r2][c2];
+        const connectable = canConnect(r1, c1, r2, c2);
+        if (same && connectable) {
+          const path = getConnectionPath(r1, c1, r2, c2);
+          if (path) {
+            selected = null;
+            eliminationLine = { path, cells: [r1, c1, r2, c2], startTime: Date.now() };
+          }
+        } else {
+          selected = null;
+        }
+      }
+      draw();
+    });
+
+    function tick() {
+      if (eliminationLine) {
+        const elapsed = Date.now() - eliminationLine.startTime;
+        if (elapsed >= 100) {
+          const [r1, c1, r2, c2] = eliminationLine.cells;
+          grid[r1][c1] = -1; grid[r2][c2] = -1;
+          eliminationLine = null;
+          if (grid.every(row => row.every(c => c < 0))) {
+            victory = true;
+            victoryStartTime = Date.now() / 1000;
+          }
+        }
+      }
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    Promise.all(IMAGE_FILES.map((f, i) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => { tileImages[i] = img; resolve(); };
+        img.onerror = () => resolve();
+        img.src = 'images/' + f;
+      });
+    })).then(() => {
+      tileImages = tileImages.filter(Boolean);
+      if (tileImages.length < 2) {
+        alert('图片加载失败，请确保 images 文件夹包含 PNG 图片');
+        return;
+      }
+      newGame();
+      document.getElementById('newGame').onclick = () => { newGame(); draw(); };
+      tick();
+    });
+  </script>
+</body>
+</html>
