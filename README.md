@@ -24,3 +24,8 @@
 
 - 支持 **JPEG**、**PNG**、**HEIC** 格式
 - 将图片放入 `images` 文件夹即可，游戏会自动加载
+你的仓库根目录/
+├── index.html      ← web/index.html
+└── images/         ← web/images/ 整个文件夹（含 8 张 PNG）
+    ├── 008CDAAD-6C3C-4EAE-8046-62A322C3D3C3.png
+    └── ... (其他 7 张 PNG 图片)
